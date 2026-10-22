@@ -156,7 +156,7 @@ No hace todavía:
 - Firmas, marcas sobre la foto ni plantillas por tipo de informe.
 - Trabajo colaborativo: cada informe vive en el teléfono de quien lo levanta.
 
----
+-----
 
 ## Archivos
 
@@ -172,3 +172,5 @@ No hace todavía:
 | `sw.js` | Funcionamiento sin señal |
 | `fonts.css` | Barlow incrustada, para que no dependa de internet |
 | `vendor/pdf-lib.min.js` | Librería de PDF (MIT), local |
+
+
