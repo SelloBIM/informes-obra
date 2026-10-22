@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Informes de obra</title>
+<meta name="description" content="Informes de obra con fotos y comentarios, publicados directamente en Autodesk Construction Cloud.">
+<meta name="theme-color" content="#231F20">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="Informes">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="fonts.css">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="barra">
+  <button class="barra__atras" id="btn-atras" hidden aria-label="Volver">‹</button>
+  <h1 class="barra__titulo" id="barra-titulo">Informes de obra</h1>
+  <button class="barra__menu" id="btn-cuenta" hidden aria-label="Cuenta">⋯</button>
+</header>
+
+<div class="aviso" id="aviso-sin-red" hidden>Sin conexión. Puedes seguir trabajando; se publica cuando vuelva la señal.</div>
+
+<main id="vista">
+
+  <!-- ============================================================ ingreso -->
+  <section class="pantalla" id="p-entrar">
+    <div class="portada">
+      <div class="portada__marca"></div>
+      <h2 class="portada__titulo">Informes de obra</h2>
+      <p class="portada__texto">
+        Toma las fotos, escribe el comentario de cada una y publica el PDF en la
+        carpeta del proyecto en Autodesk Construction Cloud. Funciona sin señal:
+        el informe se guarda en el teléfono hasta que decidas publicarlo.
+      </p>
+      <button class="boton boton--primario boton--ancho" id="btn-entrar">Entrar con mi cuenta de Autodesk</button>
+      <p class="portada__nota">
+        Entras con tu propia cuenta. La app solo puede escribir en los proyectos
+        y carpetas donde ya tienes permiso.
+      </p>
+      <div class="error" id="error-entrar" hidden></div>
+    </div>
+  </section>
+
+  <!-- ====================================================== mis informes -->
+  <section class="pantalla" id="p-lista" hidden>
+    <div class="lista" id="lista-informes"></div>
+    <div class="vacio" id="lista-vacia" hidden>
+      <p class="vacio__titulo">Todavía no hay informes</p>
+      <p class="vacio__texto">Crea el primero y quedará guardado aquí hasta que lo publiques.</p>
+    </div>
+    <div class="pie-espacio" id="pie-espacio"></div>
+  </section>
+
+  <!-- ====================================================== elegir destino -->
+  <section class="pantalla" id="p-destino" hidden>
+    <p class="paso" id="destino-ayuda">Elige dónde se va a publicar el PDF.</p>
+    <nav class="ruta" id="destino-ruta" hidden></nav>
+    <div class="lista" id="destino-lista"></div>
+    <div class="cargando" id="destino-cargando" hidden>Consultando ACC…</div>
+    <div class="error" id="destino-error" hidden></div>
+  </section>
+
+  <!-- ====================================================== editor informe -->
+  <section class="pantalla" id="p-informe" hidden>
+
+    <div class="destino" id="informe-destino"></div>
+
+    <div class="campos">
+      <label class="campo">
+        <span class="campo__etiqueta">Frente o área</span>
+        <input class="campo__entrada" id="f-frente" type="text" placeholder="Torre 3 — piso 8" autocomplete="off">
+      </label>
+      <div class="campos__fila">
+        <label class="campo">
+          <span class="campo__etiqueta">Fecha de visita</span>
+          <input class="campo__entrada" id="f-fecha" type="date">
+        </label>
+        <label class="campo">
+          <span class="campo__etiqueta">Clima</span>
+          <select class="campo__entrada" id="f-clima">
+            <option value="">—</option>
+            <option>Despejado</option>
+            <option>Nublado</option>
+            <option>Lluvia</option>
+            <option>Lluvia fuerte</option>
+          </select>
+        </label>
+      </div>
+      <label class="campo">
+        <span class="campo__etiqueta">Elaborado por</span>
+        <input class="campo__entrada" id="f-responsable" type="text" placeholder="Nombre y cargo" autocomplete="name">
+      </label>
+      <label class="campo">
+        <span class="campo__etiqueta">Observaciones generales</span>
+        <textarea class="campo__entrada campo__entrada--area" id="f-resumen" rows="3" placeholder="Lo que debe quedar escrito aunque no haya foto."></textarea>
+      </label>
+    </div>
+
+    <div class="seccion-fotos">
+      <h3 class="seccion-fotos__titulo">Fotos <span class="conteo" id="conteo-fotos">0</span></h3>
+      <div class="fotos" id="fotos"></div>
+      <div class="vacio vacio--compacto" id="fotos-vacio">
+        <p class="vacio__texto">Cada foto lleva su comentario. Así no hay que reconstruirlo después.</p>
+      </div>
+      <div class="capturar">
+        <button class="boton boton--negro" id="btn-camara">Tomar foto</button>
+        <button class="boton boton--borde" id="btn-galeria">Desde la galería</button>
+      </div>
+      <input type="file" id="in-camara" accept="image/*" capture="environment" multiple hidden>
+      <input type="file" id="in-galeria" accept="image/*" multiple hidden>
+      <div class="procesando" id="procesando" hidden></div>
+    </div>
+
+    <div class="peligro">
+      <button class="boton boton--texto" id="btn-borrar">Eliminar este informe</button>
+    </div>
+  </section>
+
+</main>
+
+<!-- ====================================================== barra de acción -->
+<div class="accion" id="accion" hidden>
+  <button class="boton boton--primario boton--ancho" id="btn-accion"></button>
+  <button class="boton boton--borde boton--ancho" id="btn-accion-sec" hidden></button>
+</div>
+
+<!-- ======================================================== hojas y avisos -->
+<div class="hoja" id="hoja" hidden>
+  <div class="hoja__panel" role="dialog" aria-modal="true">
+    <h3 class="hoja__titulo" id="hoja-titulo"></h3>
+    <div class="hoja__cuerpo" id="hoja-cuerpo"></div>
+    <div class="hoja__acciones" id="hoja-acciones"></div>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+
+<script src="config.js"></script>
+<script src="vendor/pdf-lib.min.js"></script>
+<script type="module" src="app.js"></script>
+</body>
+</html>
