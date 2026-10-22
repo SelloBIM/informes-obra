@@ -8,7 +8,7 @@ window.CONFIG = {
   // Client ID de la aplicación creada en https://aps.autodesk.com/myapps
   // (tipo de app: "Single Page App" / cliente público con PKCE).
   // Este valor NO es secreto: puede ir en el código del navegador.
-  CLIENT_ID: "PEGA-AQUI-TU-CLIENT-ID",
+  CLIENT_ID: "Itg9H9e9ivOhVflDueOAvs7FEgGUAj2CMQkUnJobVIUzSuo7",
 
   // Permisos que pide la app al entrar. No agregues más de los necesarios.
   //   data:read    ver proyectos y carpetas
