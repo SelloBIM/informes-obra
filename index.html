@@ -101,16 +101,13 @@
       </label>
     </div>
 
-    <div class="seccion-fotos">
-      <h3 class="seccion-fotos__titulo">Fotos <span class="conteo" id="conteo-fotos">0</span></h3>
-      <div class="fotos" id="fotos"></div>
-      <div class="vacio vacio--compacto" id="fotos-vacio">
-        <p class="vacio__texto">Cada foto lleva su comentario. Así no hay que reconstruirlo después.</p>
+    <div class="seccion-obs">
+      <h3 class="seccion-obs__titulo">Observaciones <span class="conteo" id="conteo-obs">0</span></h3>
+      <div class="observaciones" id="observaciones"></div>
+      <div class="vacio vacio--compacto" id="obs-vacio">
+        <p class="vacio__texto">Cada observación es un hallazgo: un título, qué pasa y las fotos que lo sustentan.</p>
       </div>
-      <div class="capturar">
-        <button class="boton boton--negro" id="btn-camara">Tomar foto</button>
-        <button class="boton boton--borde" id="btn-galeria">Desde la galería</button>
-      </div>
+      <button class="boton boton--negro boton--ancho" id="btn-nueva-obs">Agregar observación</button>
       <input type="file" id="in-camara" accept="image/*" capture="environment" multiple hidden>
       <input type="file" id="in-galeria" accept="image/*" multiple hidden>
       <div class="procesando" id="procesando" hidden></div>

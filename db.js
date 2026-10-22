@@ -41,6 +41,28 @@ function tx(store, modo, fn) {
   }));
 }
 
+// Los informes viejos guardaban una foto con un comentario cada una. El
+// formato nuevo agrupa varias fotos bajo una observación. Esta función
+// convierte los viejos al vuelo, para no perder nada de lo ya levantado.
+function normalizar(informe) {
+  if (!informe) return informe;
+  if (!Array.isArray(informe.observaciones)) {
+    informe.observaciones = (informe.fotos || []).map((f, i) => ({
+      id: f.id || 'o' + i,
+      titulo: '',
+      descripcion: f.comentario || '',
+      fotos: [{ id: f.id || 'f' + i, blob: f.blob, ts: f.ts }]
+    }));
+    delete informe.fotos;
+  }
+  for (const o of informe.observaciones) {
+    if (!Array.isArray(o.fotos)) o.fotos = [];
+    if (typeof o.titulo !== 'string') o.titulo = '';
+    if (typeof o.descripcion !== 'string') o.descripcion = '';
+  }
+  return informe;
+}
+
 export const db = {
 
   nuevoId() {
@@ -49,11 +71,11 @@ export const db = {
 
   async listar() {
     const r = await tx('informes', 'readonly', s => s.getAll());
-    return (r || []).sort((a, b) => (b.actualizado || 0) - (a.actualizado || 0));
+    return (r || []).map(normalizar).sort((a, b) => (b.actualizado || 0) - (a.actualizado || 0));
   },
 
   async obtener(id) {
-    return tx('informes', 'readonly', s => s.get(id));
+    return normalizar(await tx('informes', 'readonly', s => s.get(id)));
   },
 
   async guardar(informe) {

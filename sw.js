@@ -2,7 +2,7 @@
 // Sube el número de versión cada vez que publiques cambios: así los
 // teléfonos del equipo se actualizan solos la próxima vez que abran.
 
-const VERSION = 'v1';
+const VERSION = 'v3';
 const CACHE = 'informes-obra-' + VERSION;
 
 const ARCHIVOS = [

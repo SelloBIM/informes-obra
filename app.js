@@ -9,8 +9,27 @@ const estado = {
   pantalla: 'entrar',
   informe: null,
   nav: null,
-  instalador: null
+  instalador: null,
+  logo: null
 };
+
+// El logo es opcional: si no existe logo.png en el servidor, el PDF sale con
+// el nombre de la empresa en texto. Se guarda para que funcione sin señal.
+async function cargarLogo() {
+  try {
+    const guardado = await db.ajuste('logo');
+    if (guardado) estado.logo = guardado;
+  } catch { /* sin logo guardado */ }
+  if (!CONFIG.LOGO) return;
+  try {
+    const r = await fetch(CONFIG.LOGO, { cache: 'no-cache' });
+    if (!r.ok) return;
+    const bytes = await r.arrayBuffer();
+    if (bytes.byteLength < 64) return;
+    estado.logo = bytes;
+    db.ajuste('logo', bytes);
+  } catch { /* sin red: se usa el guardado */ }
+}
 
 // ========================================================== arranque
 
@@ -39,6 +58,7 @@ const estado = {
 
   if (auth.haySesion()) {
     db.protegerAlmacenamiento();
+    cargarLogo();
     irALista();
   } else {
     mostrarPantalla('entrar');
@@ -116,7 +136,14 @@ async function pintarLista() {
     fila.type = 'button';
     const txt = el('span', 'fila__texto');
     txt.appendChild(el('span', 'fila__titulo', inf.proyecto?.proyectoNombre || 'Sin proyecto'));
-    const partes = [inf.cabecera?.frente, fechaCorta(inf.cabecera?.fecha), `${(inf.fotos || []).length} foto${(inf.fotos || []).length === 1 ? '' : 's'}`].filter(Boolean);
+    const obs = inf.observaciones || [];
+    const nFotos = obs.reduce((n, o) => n + (o.fotos || []).length, 0);
+    const partes = [
+      inf.cabecera?.frente,
+      fechaCorta(inf.cabecera?.fecha),
+      `${obs.length} ${obs.length === 1 ? 'observación' : 'observaciones'}`,
+      `${nFotos} foto${nFotos === 1 ? '' : 's'}`
+    ].filter(Boolean);
     txt.appendChild(el('span', 'fila__detalle', partes.join(' · ')));
     fila.appendChild(txt);
     fila.appendChild(el('span', `marca marca--${inf.estado}`, inf.estado === 'publicado' ? 'Publicado' : 'Borrador'));
@@ -270,7 +297,7 @@ async function confirmarDestino(carpeta) {
       responsable: previo || (auth.usuario() ? auth.usuario().nombre : ''),
       resumen: ''
     },
-    fotos: []
+    observaciones: [{ id: 'o' + Date.now().toString(36), titulo: '', descripcion: '', fotos: [] }]
   };
   await db.guardar(inf);
   abrirInforme(inf.id);
@@ -292,7 +319,7 @@ async function abrirInforme(id) {
   $('#f-resumen').value = inf.cabecera.resumen || '';
 
   pintarDestinoInforme();
-  pintarFotos();
+  pintarObservaciones();
   actualizarAccionInforme();
 }
 
@@ -333,8 +360,10 @@ function guardarPronto() {
 
 // --- fotos
 
-$('#btn-camara').addEventListener('click', () => $('#in-camara').click());
-$('#btn-galeria').addEventListener('click', () => $('#in-galeria').click());
+// La observación a la que se le van a pegar las fotos que lleguen.
+let obsActiva = 0;
+
+$('#btn-nueva-obs').addEventListener('click', () => agregarObservacion());
 $('#in-camara').addEventListener('change', e => agregarFotos(e.target));
 $('#in-galeria').addEventListener('change', e => agregarFotos(e.target));
 
@@ -345,13 +374,14 @@ async function agregarFotos(input) {
 
   const aviso = $('#procesando');
   aviso.hidden = false;
-  $('#btn-camara').disabled = $('#btn-galeria').disabled = true;
 
   for (let i = 0; i < archivos.length; i++) {
     aviso.textContent = archivos.length > 1 ? `Preparando foto ${i + 1} de ${archivos.length}…` : 'Preparando la foto…';
     try {
       const blob = await comprimir(archivos[i]);
-      estado.informe.fotos.push({ id: 'f' + Date.now() + i, blob, comentario: '', ts: Date.now() });
+      const obs = estado.informe.observaciones[obsActiva];
+      if (!obs) break;
+      obs.fotos.push({ id: 'f' + Date.now() + i, blob, ts: Date.now() });
     } catch {
       aviso.textContent = 'Una de las imágenes no se pudo leer. Tómala de nuevo.';
       await esperar(1800);
@@ -360,8 +390,7 @@ async function agregarFotos(input) {
 
   await db.guardar(estado.informe);
   aviso.hidden = true;
-  $('#btn-camara').disabled = $('#btn-galeria').disabled = false;
-  pintarFotos();
+  pintarObservaciones();
   actualizarAccionInforme();
 }
 
@@ -399,65 +428,143 @@ function viaImagen(archivo) {
   });
 }
 
-function pintarFotos() {
-  const cont = $('#fotos');
+async function agregarObservacion() {
+  estado.informe.observaciones.push({
+    id: 'o' + Date.now().toString(36),
+    titulo: '', descripcion: '', fotos: []
+  });
+  await db.guardar(estado.informe);
+  pintarObservaciones();
+  actualizarAccionInforme();
+  // Lleva el foco al título de la observación recién creada.
+  const campos = document.querySelectorAll('.obs__titulo');
+  const ultimo = campos[campos.length - 1];
+  if (ultimo) { ultimo.focus(); ultimo.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
+}
+
+function pintarObservaciones() {
+  const cont = $('#observaciones');
   cont.querySelectorAll('img').forEach(i => URL.revokeObjectURL(i.src));
   cont.innerHTML = '';
 
-  const fotos = estado.informe.fotos;
-  $('#conteo-fotos').textContent = fotos.length;
-  $('#fotos-vacio').hidden = fotos.length > 0;
+  const obs = estado.informe.observaciones;
+  $('#conteo-obs').textContent = obs.length;
+  $('#obs-vacio').hidden = obs.length > 0;
 
-  fotos.forEach((foto, i) => {
-    const caja = el('div', 'foto');
+  obs.forEach((o, i) => {
+    const caja = el('div', 'obs');
 
-    const barra = el('div', 'foto__barra');
-    barra.appendChild(el('span', 'foto__numero', `Foto ${i + 1}`));
-    barra.appendChild(botonFoto('↑', 'Subir', i === 0, () => mover(i, -1)));
-    barra.appendChild(botonFoto('↓', 'Bajar', i === fotos.length - 1, () => mover(i, 1)));
-    barra.appendChild(botonFoto('✕', 'Quitar', false, () => quitar(i)));
+    // --- barra con número y controles
+    const barra = el('div', 'obs__barra');
+    barra.appendChild(el('span', 'obs__num', String(i + 1)));
+    barra.appendChild(el('span', 'obs__relleno'));
+    barra.appendChild(botonIcono('↑', 'Subir', i === 0, () => moverObs(i, -1)));
+    barra.appendChild(botonIcono('↓', 'Bajar', i === obs.length - 1, () => moverObs(i, 1)));
+    barra.appendChild(botonIcono('✕', 'Eliminar observación', false, () => quitarObs(i)));
     caja.appendChild(barra);
 
-    const img = el('img', 'foto__imagen');
-    img.src = URL.createObjectURL(foto.blob);
-    img.alt = `Foto ${i + 1}`;
-    img.loading = 'lazy';
-    caja.appendChild(img);
-
-    const ta = el('textarea', 'foto__comentario');
-    ta.placeholder = 'Qué se ve y qué hay que hacer';
-    ta.value = foto.comentario || '';
-    let t = null;
-    ta.addEventListener('input', () => {
-      foto.comentario = ta.value;
-      clearTimeout(t);
-      t = setTimeout(() => db.guardar(estado.informe), 400);
+    // --- título
+    const titulo = el('input', 'obs__titulo');
+    titulo.type = 'text';
+    titulo.placeholder = 'Título: qué se encontró';
+    titulo.value = o.titulo || '';
+    titulo.addEventListener('input', () => {
+      o.titulo = titulo.value;
+      guardarObsPronto();
+      actualizarAccionInforme();
     });
-    caja.appendChild(ta);
+    caja.appendChild(titulo);
+
+    // --- descripción
+    const desc = el('textarea', 'obs__desc');
+    desc.rows = 3;
+    desc.placeholder = 'Descripción: qué pasa y qué hay que hacer';
+    desc.value = o.descripcion || '';
+    desc.addEventListener('input', () => { o.descripcion = desc.value; guardarObsPronto(); });
+    caja.appendChild(desc);
+
+    // --- fotos
+    if (o.fotos.length) {
+      const rejilla = el('div', 'obs__fotos');
+      o.fotos.forEach((foto, f) => {
+        const celda = el('div', 'miniatura');
+        const img = el('img', 'miniatura__img');
+        img.src = URL.createObjectURL(foto.blob);
+        img.alt = `Foto ${i + 1}.${f + 1}`;
+        img.loading = 'lazy';
+        celda.appendChild(img);
+        celda.appendChild(el('span', 'miniatura__etiqueta', `${i + 1}.${f + 1}`));
+        const quitar = el('button', 'miniatura__quitar', '✕');
+        quitar.type = 'button';
+        quitar.setAttribute('aria-label', `Quitar foto ${i + 1}.${f + 1}`);
+        quitar.onclick = () => quitarFoto(i, f);
+        celda.appendChild(quitar);
+        rejilla.appendChild(celda);
+      });
+      caja.appendChild(rejilla);
+    }
+
+    // --- captura
+    const botones = el('div', 'obs__captura');
+    const camara = el('button', 'boton boton--negro boton--chico', o.fotos.length ? 'Otra foto' : 'Tomar foto');
+    camara.type = 'button';
+    camara.onclick = () => { obsActiva = i; $('#in-camara').click(); };
+    const galeria = el('button', 'boton boton--borde boton--chico', 'Galería');
+    galeria.type = 'button';
+    galeria.onclick = () => { obsActiva = i; $('#in-galeria').click(); };
+    botones.appendChild(camara);
+    botones.appendChild(galeria);
+    caja.appendChild(botones);
 
     cont.appendChild(caja);
   });
 }
 
-function botonFoto(simbolo, etiqueta, deshabilitado, fn) {
-  const b = el('button', 'foto__accion', simbolo);
+// Guardado diferido de los campos de las observaciones. No vuelve a pintar,
+// para no sacarle el teclado al residente mientras escribe.
+let tObs = null;
+function guardarObsPronto() {
+  clearTimeout(tObs);
+  tObs = setTimeout(() => db.guardar(estado.informe), 400);
+}
+
+function botonIcono(simbolo, etiqueta, deshabilitado, fn) {
+  const b = el('button', 'obs__accion', simbolo);
   b.type = 'button'; b.disabled = deshabilitado; b.title = etiqueta;
   b.setAttribute('aria-label', etiqueta);
   b.onclick = fn;
   return b;
 }
 
-async function mover(i, paso) {
-  const f = estado.informe.fotos;
-  [f[i], f[i + paso]] = [f[i + paso], f[i]];
+async function moverObs(i, paso) {
+  const o = estado.informe.observaciones;
+  [o[i], o[i + paso]] = [o[i + paso], o[i]];
   await db.guardar(estado.informe);
-  pintarFotos();
+  pintarObservaciones();
 }
 
-async function quitar(i) {
-  estado.informe.fotos.splice(i, 1);
+function quitarObs(i) {
+  const o = estado.informe.observaciones[i];
+  const tiene = o.fotos.length || o.titulo || o.descripcion;
+  const borrar = async () => {
+    estado.informe.observaciones.splice(i, 1);
+    await db.guardar(estado.informe);
+    cerrarHoja();
+    pintarObservaciones();
+    actualizarAccionInforme();
+  };
+  if (!tiene) return borrar();
+  abrirHoja('Eliminar la observación',
+    `<p>Se borra el texto y ${o.fotos.length} foto${o.fotos.length === 1 ? '' : 's'} de este informe.</p>`, [
+    { texto: 'Eliminar', clase: 'boton--primario', fn: borrar },
+    { texto: 'Conservar', clase: 'boton--borde', fn: cerrarHoja }
+  ]);
+}
+
+async function quitarFoto(i, f) {
+  estado.informe.observaciones[i].fotos.splice(f, 1);
   await db.guardar(estado.informe);
-  pintarFotos();
+  pintarObservaciones();
   actualizarAccionInforme();
 }
 
@@ -473,10 +580,14 @@ $('#btn-borrar').addEventListener('click', () => {
 function actualizarAccionInforme() {
   if (estado.pantalla !== 'informe') return;
   const inf = estado.informe;
+  const obs = inf.observaciones || [];
+  const utiles = obs.filter(o => (o.titulo || '').trim());
   const faltan = [];
-  if (!inf.fotos.length) faltan.push('al menos una foto');
   if (!$('#f-fecha').value) faltan.push('la fecha');
   if (!$('#f-responsable').value.trim()) faltan.push('quién lo elabora');
+  if (!obs.length) faltan.push('al menos una observación');
+  else if (!utiles.length) faltan.push('el título de la observación');
+  else if (!utiles.some(o => (o.fotos || []).length)) faltan.push('al menos una foto');
 
   const b = $('#btn-accion');
   if (faltan.length) {
@@ -493,7 +604,7 @@ async function verPdf() {
   b.disabled = true; b.textContent = 'Armando el PDF…';
   try {
     await sincronizarCampos();
-    const blob = await generarPdf(estado.informe, { empresa: CONFIG.EMPRESA });
+    const blob = await generarPdf(estado.informe, { empresa: CONFIG.EMPRESA, logo: estado.logo });
     const nombre = nombreArchivo(estado.informe);
     const archivo = new File([blob], nombre, { type: 'application/pdf' });
 
@@ -546,7 +657,7 @@ async function publicar() {
 
   try {
     avance('Armando el PDF', 3);
-    const blob = await generarPdf(inf, { empresa: CONFIG.EMPRESA });
+    const blob = await generarPdf(inf, { empresa: CONFIG.EMPRESA, logo: estado.logo });
 
     const r = await acc.publicar({
       projectId: inf.proyecto.proyectoId,

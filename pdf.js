@@ -1,19 +1,34 @@
 // Armado del PDF. Todo ocurre en el teléfono: ninguna foto sale del equipo
 // hasta que la persona pulsa "Publicar en ACC".
+//
+// Estructura: portada con logo y datos, luego una sección por observación
+// (número, título, descripción y sus fotos en cuadrícula de dos columnas).
 
 const { PDFDocument, StandardFonts, rgb } = PDFLib;
 
 const HOJA = { ancho: 612, alto: 792 };      // Carta vertical
-const MARGEN = 42;
-const ANCHO = HOJA.ancho - MARGEN * 2;
+const MARGEN = 48;
+const ANCHO = HOJA.ancho - MARGEN * 2;       // 516
+const SANGRIA = 32;                          // texto de la observación
 
-const ROJO = rgb(0.929, 0.110, 0.141);   // #ED1C24
-const NEGRO = rgb(0.137, 0.122, 0.125);  // #231F20
-const GRIS = rgb(0.541, 0.545, 0.553);   // #8A8B8D
-const LINEA = rgb(0.851, 0.851, 0.855);  // #D9D9DA
+const ROJO    = rgb(0.929, 0.110, 0.141);    // #ED1C24
+const NEGRO   = rgb(0.137, 0.122, 0.125);    // #231F20
+const TEXTO   = rgb(0.231, 0.220, 0.224);
+const GRIS    = rgb(0.455, 0.459, 0.467);
+const LINEA   = rgb(0.851, 0.851, 0.855);
+const FONDO   = rgb(0.945, 0.945, 0.945);
+const BLANCO  = rgb(1, 1, 1);
+
+// Rejilla de fotos
+const COLS  = 2;
+const HUECO = 12;
+const CELDA_W = (ANCHO - HUECO * (COLS - 1)) / COLS;   // 252
+const CELDA_H = Math.round(CELDA_W * 0.75);            // 189
+const PIE_FOTO = 12;
+const FILA_H = CELDA_H + PIE_FOTO;
 
 // Helvetica usa codificación WinAnsi: las tildes y la ñ entran bien, pero
-// un emoji o un guion largo raro rompen el documento. Se limpian antes.
+// un emoji o un guion raro rompen el documento. Se limpian antes.
 function limpiar(t) {
   return String(t == null ? '' : t)
     .replace(/[\u2018\u2019\u201B]/g, "'")
@@ -35,7 +50,6 @@ function cortar(texto, fuente, tam, anchoMax) {
       const prueba = linea ? linea + ' ' + palabra : palabra;
       if (fuente.widthOfTextAtSize(prueba, tam) <= anchoMax) { linea = prueba; continue; }
       if (linea) lineas.push(linea);
-      // Palabra sola más ancha que la caja (una URL, un código): se parte.
       if (fuente.widthOfTextAtSize(palabra, tam) > anchoMax) {
         let trozo = '';
         for (const c of palabra) {
@@ -56,146 +70,210 @@ function fecha(iso) {
   return `${d}/${m}/${a}`;
 }
 
-export async function generarPdf(informe, { empresa }) {
+const MESES = ['enero','febrero','marzo','abril','mayo','junio','julio','agosto','septiembre','octubre','noviembre','diciembre'];
+function fechaLarga(iso) {
+  if (!iso) return '';
+  const [a, m, d] = iso.split('-');
+  return `${Number(d)} de ${MESES[Number(m) - 1]} de ${a}`;
+}
+
+export async function generarPdf(informe, { empresa, logo }) {
   const doc = await PDFDocument.create();
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const fuerte = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  const fotos = informe.fotos || [];
-  const porPagina = CONFIG.FOTOS_POR_PAGINA === 1 ? 1 : 2;
-  const titulo = `${informe.proyecto?.proyectoNombre || 'Proyecto'}`;
+  const observaciones = (informe.observaciones || []).filter(o => (o.fotos || []).length || o.titulo || o.descripcion);
+  const totalFotos = observaciones.reduce((n, o) => n + (o.fotos || []).length, 0);
+  const proyecto = informe.proyecto?.proyectoNombre || 'Proyecto';
 
-  doc.setTitle(limpiar(`Informe de obra - ${titulo} - ${fecha(informe.cabecera?.fecha)}`));
+  doc.setTitle(limpiar(`Informe de obra - ${proyecto} - ${fecha(informe.cabecera?.fecha)}`));
   doc.setAuthor(limpiar(informe.cabecera?.responsable || empresa));
   doc.setProducer(limpiar(empresa));
   doc.setCreationDate(new Date());
+
+  // Logo opcional: PNG o JPG, se encoge para no pasar de 40 pt de alto.
+  let marca = null;
+  if (logo) {
+    try {
+      const bytes = new Uint8Array(logo);
+      marca = (bytes[0] === 0x89 && bytes[1] === 0x50)
+        ? await doc.embedPng(bytes)
+        : await doc.embedJpg(bytes);
+    } catch { marca = null; }
+  }
+  const marcaAlto = marca ? Math.min(34, marca.height) : 0;
+  const marcaEscala = marca ? marcaAlto / marca.height : 1;
+  const marcaAncho = marca ? Math.min(marca.width * marcaEscala, 150) : 0;
 
   const paginas = [];
 
   function nuevaPagina() {
     const p = doc.addPage([HOJA.ancho, HOJA.alto]);
     paginas.push(p);
-    // Franja superior
-    p.drawRectangle({ x: 0, y: HOJA.alto - 6, width: HOJA.ancho, height: 6, color: ROJO });
+    p.drawRectangle({ x: 0, y: HOJA.alto - 5, width: HOJA.ancho, height: 5, color: ROJO });
     return p;
   }
 
-  function encabezado(p, texto) {
-    const y = HOJA.alto - 30;
-    p.drawText(limpiar(empresa), { x: MARGEN, y, size: 9, font: fuerte, color: NEGRO });
-    const der = limpiar(texto);
-    p.drawText(der, {
-      x: HOJA.ancho - MARGEN - normal.widthOfTextAtSize(der, 9),
-      y, size: 9, font: normal, color: GRIS
-    });
-    p.drawLine({
-      start: { x: MARGEN, y: y - 10 }, end: { x: HOJA.ancho - MARGEN, y: y - 10 },
-      thickness: 0.75, color: LINEA
-    });
-    return y - 28;
+  // Cabecera de página de contenido. Devuelve la Y donde empieza el cuerpo.
+  function encabezado(p) {
+    const yTop = HOJA.alto - 34;
+    if (marca) {
+      p.drawImage(marca, { x: MARGEN, y: yTop - marcaAlto + 9, width: marcaAncho, height: marcaAlto });
+    } else {
+      p.drawText(limpiar(empresa), { x: MARGEN, y: yTop, size: 9, font: fuerte, color: NEGRO });
+    }
+    const der = limpiar([proyecto, informe.cabecera?.frente, fecha(informe.cabecera?.fecha)].filter(Boolean).join('  ·  '));
+    const anchoDer = normal.widthOfTextAtSize(der, 8.5);
+    p.drawText(der, { x: HOJA.ancho - MARGEN - Math.min(anchoDer, ANCHO), y: yTop, size: 8.5, font: normal, color: GRIS });
+    const yLinea = yTop - (marca ? marcaAlto - 4 : 10);
+    p.drawLine({ start: { x: MARGEN, y: yLinea }, end: { x: HOJA.ancho - MARGEN, y: yLinea }, thickness: 0.75, color: LINEA });
+    return yLinea - 30;
   }
 
   // ------------------------------------------------------------- portada
   const pc = nuevaPagina();
-  let y = encabezado(pc, 'Informe de obra');
+  let y = HOJA.alto - 60;
 
-  y -= 10;
-  pc.drawText('Informe de obra', { x: MARGEN, y: y - 22, size: 30, font: fuerte, color: NEGRO });
-  y -= 34;
-
-  const sub = limpiar(titulo);
-  for (const l of cortar(sub, normal, 15, ANCHO)) {
-    y -= 20;
-    pc.drawText(l, { x: MARGEN, y, size: 15, font: normal, color: ROJO });
+  if (marca) {
+    pc.drawImage(marca, { x: MARGEN, y: y - marcaAlto, width: marcaAncho, height: marcaAlto });
+    y -= marcaAlto + 46;
+  } else {
+    pc.drawText(limpiar(empresa).toUpperCase(), { x: MARGEN, y, size: 10, font: fuerte, color: NEGRO });
+    y -= 46;
   }
 
-  y -= 26;
-  pc.drawLine({ start: { x: MARGEN, y }, end: { x: HOJA.ancho - MARGEN, y }, thickness: 2, color: NEGRO });
-  y -= 24;
+  pc.drawText('Informe de obra', { x: MARGEN, y: y - 26, size: 34, font: fuerte, color: NEGRO });
+  y -= 36;
 
+  for (const l of cortar(proyecto, normal, 16, ANCHO)) {
+    y -= 21;
+    pc.drawText(l, { x: MARGEN, y, size: 16, font: normal, color: ROJO });
+  }
+
+  y -= 14;
+  pc.drawLine({ start: { x: MARGEN, y }, end: { x: HOJA.ancho - MARGEN, y }, thickness: 2.5, color: NEGRO });
+  y -= 30;
+
+  // Datos en dos columnas
   const datos = [
     ['Frente o área', informe.cabecera?.frente],
-    ['Fecha de visita', fecha(informe.cabecera?.fecha)],
+    ['Fecha de visita', fechaLarga(informe.cabecera?.fecha)],
     ['Elaborado por', informe.cabecera?.responsable],
     ['Clima', informe.cabecera?.clima],
-    ['Fotos', String(fotos.length)],
-    ['Carpeta en ACC', informe.proyecto?.carpetaRuta]
+    ['Carpeta en ACC', informe.proyecto?.carpetaRuta],
+    ['Contenido', `${observaciones.length} ${observaciones.length === 1 ? 'observación' : 'observaciones'} · ${totalFotos} foto${totalFotos === 1 ? '' : 's'}`]
   ].filter(([, v]) => v);
 
-  for (const [etiqueta, valor] of datos) {
-    pc.drawText(limpiar(etiqueta), { x: MARGEN, y, size: 9.5, font: normal, color: GRIS });
-    const lineas = cortar(valor, fuerte, 11.5, ANCHO - 150);
-    lineas.forEach((l, i) => {
-      pc.drawText(l, { x: MARGEN + 150, y: y - i * 14, size: 11.5, font: fuerte, color: NEGRO });
-    });
-    y -= Math.max(22, lineas.length * 14 + 8);
+  const colW = (ANCHO - 24) / 2;
+  let fila = 0;
+  for (let i = 0; i < datos.length; i += 2) {
+    const yFila = y - fila * 44;
+    for (let c = 0; c < 2 && i + c < datos.length; c++) {
+      const [etiqueta, valor] = datos[i + c];
+      const x = MARGEN + c * (colW + 24);
+      pc.drawText(limpiar(etiqueta), { x, y: yFila, size: 8, font: normal, color: GRIS });
+      const lineas = cortar(valor, fuerte, 11, colW).slice(0, 2);
+      lineas.forEach((l, k) => pc.drawText(l, { x, y: yFila - 14 - k * 13, size: 11, font: fuerte, color: NEGRO }));
+    }
+    fila++;
   }
+  y -= fila * 44 + 6;
 
   if (informe.cabecera?.resumen) {
-    y -= 8;
     pc.drawLine({ start: { x: MARGEN, y }, end: { x: HOJA.ancho - MARGEN, y }, thickness: 0.75, color: LINEA });
-    y -= 22;
-    pc.drawText('Observaciones generales', { x: MARGEN, y, size: 10, font: fuerte, color: NEGRO });
-    y -= 18;
+    y -= 26;
+    pc.drawText('Observaciones generales', { x: MARGEN, y, size: 9.5, font: fuerte, color: NEGRO });
+    y -= 19;
     for (const l of cortar(informe.cabecera.resumen, normal, 11, ANCHO)) {
-      if (y < 70) { y = encabezado(nuevaPagina(), 'Informe de obra'); }
-      const p = paginas[paginas.length - 1];
-      p.drawText(l, { x: MARGEN, y, size: 11, font: normal, color: NEGRO });
-      y -= 15;
+      if (y < 90) break;
+      pc.drawText(l, { x: MARGEN, y, size: 11, font: normal, color: TEXTO });
+      y -= 15.5;
     }
   }
 
-  // --------------------------------------------------------------- fotos
-  const altoCaja = porPagina === 1 ? 470 : 250;
-  const bloque = porPagina === 1 ? 640 : 318;
+  // --------------------------------------------------------- observaciones
+  if (observaciones.length) {
+    let p = nuevaPagina();
+    let cursor = encabezado(p);
 
-  for (let i = 0; i < fotos.length; i++) {
-    const enPagina = i % porPagina;
-    let p, tope;
-    if (enPagina === 0) {
-      p = nuevaPagina();
-      tope = encabezado(p, `${limpiar(titulo)} · ${fecha(informe.cabecera?.fecha)}`);
-    } else {
-      p = paginas[paginas.length - 1];
-      tope = HOJA.alto - 58 - bloque * enPagina;
-    }
+    const saltar = () => { p = nuevaPagina(); cursor = encabezado(p); };
 
-    const foto = fotos[i];
-    let cursor = tope;
+    for (let i = 0; i < observaciones.length; i++) {
+      const obs = observaciones[i];
+      const fotos = obs.fotos || [];
+      const titulo = obs.titulo || `Observación ${i + 1}`;
+      const lineasTitulo = cortar(titulo, fuerte, 13, ANCHO - SANGRIA);
+      const lineasDesc = obs.descripcion ? cortar(obs.descripcion, normal, 10.5, ANCHO - SANGRIA) : [];
 
-    // Rótulo numerado: las fotos sí son una secuencia.
-    p.drawText(`Foto ${i + 1}`, { x: MARGEN, y: cursor, size: 11, font: fuerte, color: ROJO });
-    cursor -= 12;
+      // El encabezado de la observación no se separa de su primera fila de fotos.
+      const altoCabeza = lineasTitulo.length * 16 + (lineasDesc.length ? lineasDesc.length * 14 + 6 : 0) + 14;
+      const minimo = altoCabeza + (fotos.length ? FILA_H : 0);
+      if (cursor - minimo < 78) saltar();
 
-    const bytes = new Uint8Array(await foto.blob.arrayBuffer());
-    const img = await doc.embedJpg(bytes);
-    const escala = Math.min(ANCHO / img.width, altoCaja / img.height, 1);
-    const w = img.width * escala, h = img.height * escala;
+      // Número en cuadro rojo
+      p.drawRectangle({ x: MARGEN, y: cursor - 17, width: 22, height: 22, color: ROJO });
+      const num = String(i + 1);
+      p.drawText(num, {
+        x: MARGEN + 11 - fuerte.widthOfTextAtSize(num, 12) / 2,
+        y: cursor - 11, size: 12, font: fuerte, color: BLANCO
+      });
 
-    p.drawImage(img, { x: MARGEN + (ANCHO - w) / 2, y: cursor - h, width: w, height: h });
-    p.drawRectangle({
-      x: MARGEN + (ANCHO - w) / 2, y: cursor - h, width: w, height: h,
-      borderColor: LINEA, borderWidth: 0.75
-    });
-    cursor -= h + 14;
+      lineasTitulo.forEach((l, k) => {
+        p.drawText(l, { x: MARGEN + SANGRIA, y: cursor - 10 - k * 16, size: 13, font: fuerte, color: NEGRO });
+      });
+      cursor -= lineasTitulo.length * 16 + 8;
 
-    const comentario = foto.comentario || 'Sin comentario.';
-    for (const l of cortar(comentario, normal, 10.5, ANCHO).slice(0, porPagina === 1 ? 8 : 4)) {
-      p.drawText(l, { x: MARGEN, y: cursor, size: 10.5, font: normal, color: NEGRO });
-      cursor -= 13.5;
+      if (lineasDesc.length) {
+        lineasDesc.forEach(l => {
+          if (cursor < 86) { saltar(); }
+          p.drawText(l, { x: MARGEN + SANGRIA, y: cursor - 8, size: 10.5, font: normal, color: TEXTO });
+          cursor -= 14;
+        });
+        cursor -= 6;
+      }
+      cursor -= 8;
+
+      // Cuadrícula de fotos
+      for (let f = 0; f < fotos.length; f += COLS) {
+        if (cursor - FILA_H < 70) saltar();
+        for (let c = 0; c < COLS && f + c < fotos.length; c++) {
+          const x = MARGEN + c * (CELDA_W + HUECO);
+          const yCelda = cursor - CELDA_H;
+
+          p.drawRectangle({ x, y: yCelda, width: CELDA_W, height: CELDA_H, color: FONDO });
+
+          const bytes = new Uint8Array(await fotos[f + c].blob.arrayBuffer());
+          const img = await doc.embedJpg(bytes);
+          const esc = Math.min(CELDA_W / img.width, CELDA_H / img.height);
+          const w = img.width * esc, h = img.height * esc;
+          p.drawImage(img, { x: x + (CELDA_W - w) / 2, y: yCelda + (CELDA_H - h) / 2, width: w, height: h });
+
+          p.drawRectangle({ x, y: yCelda, width: CELDA_W, height: CELDA_H, borderColor: LINEA, borderWidth: 0.75 });
+          p.drawText(`${i + 1}.${f + c + 1}`, { x, y: yCelda - 9, size: 7.5, font: normal, color: GRIS });
+        }
+        cursor -= FILA_H + 6;
+      }
+
+      if (i < observaciones.length - 1) {
+        cursor -= 10;
+        if (cursor > 76) {
+          p.drawLine({ start: { x: MARGEN, y: cursor }, end: { x: HOJA.ancho - MARGEN, y: cursor }, thickness: 0.75, color: LINEA });
+          cursor -= 24;
+        }
+      }
     }
   }
 
   // --------------------------------------------------------- pie de página
   const generado = new Date().toLocaleString('es-CO', { dateStyle: 'short', timeStyle: 'short' });
   paginas.forEach((p, i) => {
-    const izq = limpiar(`Generado el ${generado}`);
+    const izq = limpiar(`${empresa}  ·  Generado el ${generado}`);
     const der = `${i + 1} / ${paginas.length}`;
-    p.drawLine({ start: { x: MARGEN, y: 44 }, end: { x: HOJA.ancho - MARGEN, y: 44 }, thickness: 0.5, color: LINEA });
-    p.drawText(izq, { x: MARGEN, y: 32, size: 8, font: normal, color: GRIS });
+    p.drawLine({ start: { x: MARGEN, y: 50 }, end: { x: HOJA.ancho - MARGEN, y: 50 }, thickness: 0.5, color: LINEA });
+    p.drawText(izq, { x: MARGEN, y: 37, size: 7.5, font: normal, color: GRIS });
     p.drawText(der, {
-      x: HOJA.ancho - MARGEN - normal.widthOfTextAtSize(der, 8),
-      y: 32, size: 8, font: normal, color: GRIS
+      x: HOJA.ancho - MARGEN - normal.widthOfTextAtSize(der, 7.5),
+      y: 37, size: 7.5, font: normal, color: GRIS
     });
   });
 

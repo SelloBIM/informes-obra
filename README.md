@@ -47,8 +47,14 @@ Pages apuntando a la rama principal.
 
 Abre `config.js` y reemplaza el valor de `CLIENT_ID` por el que copiaste.
 
-Ahí mismo puedes ajustar el nombre de la empresa que sale en el PDF, la
-compresión de las fotos y si van una o dos fotos por página.
+Ahí mismo puedes ajustar el nombre de la empresa que sale en el PDF y la
+compresión de las fotos.
+
+**Logo en el PDF.** Sube un `logo.png` a la raíz del repositorio (PNG con fondo
+transparente, entre 400 y 800 px de ancho) y en `config.js` cambia `LOGO: null`
+por `LOGO: "logo.png"`. Aparece en la portada y en el encabezado de cada
+página. Mientras esté en `null`, el PDF usa el nombre de la empresa en texto y
+no intenta descargar nada.
 
 ### 4. Aprobar la app en ACC
 
@@ -127,6 +133,15 @@ se repite, usa la app desde Safari en vez de instalada.
 **El PDF pesa demasiado**
 Baja `FOTO_LADO_MAX` a 1200 y `FOTO_CALIDAD` a 0.65 en `config.js`.
 
+**El logo no sale en el PDF**
+Revisa que `logo.png` esté en la raíz del repositorio y que `config.js` tenga
+`LOGO: "logo.png"` con comillas. Si acabas de subirlo, fuerza una recarga con
+Ctrl+F5: la app guarda el logo para usarlo sin señal.
+
+**Cambié algo y el teléfono sigue mostrando lo viejo**
+Sube el número de `VERSION` en `sw.js`. Es lo que obliga a los teléfonos del
+equipo a tomar la versión nueva.
+
 ---
 
 ## Publicar cambios
@@ -141,22 +156,29 @@ app se actualiza sola.
 
 Hace:
 
-- Informe por proyecto, con frente, fecha, responsable, clima y observaciones.
-- Fotos desde la cámara o la galería, comprimidas en el teléfono, cada una con
-  su comentario, reordenables.
+- Informe por proyecto, con frente, fecha, responsable, clima y observaciones
+  generales.
+- **Observaciones**: cada hallazgo lleva título, descripción y todas las fotos
+  que lo sustenten. Se reordenan y se eliminan por separado.
+- Fotos desde la cámara o la galería, comprimidas en el teléfono. Se numeran
+  por observación (1.1, 1.2, 2.1) para poder citarlas en una reunión.
 - Autoguardado permanente y funcionamiento sin señal.
-- PDF con portada, fotos numeradas y pie de página.
+- PDF con portada, logo opcional, observaciones numeradas y las fotos en
+  cuadrícula de dos columnas.
 - Publicación en la carpeta que elijas del proyecto en ACC. Si el archivo ya
   existe, sube una **versión nueva** en vez de duplicarlo.
 - Ver o compartir el PDF antes de publicarlo.
+- Los informes levantados con la versión anterior (una foto, un comentario) se
+  convierten solos al abrirlos: cada foto pasa a ser una observación.
 
 No hace todavía:
 
 - Crear Issues ni RFIs en ACC Build (eso es otra API).
 - Firmas, marcas sobre la foto ni plantillas por tipo de informe.
+- Prioridad o responsable por observación: hoy solo título, descripción y fotos.
 - Trabajo colaborativo: cada informe vive en el teléfono de quien lo levanta.
 
------
+---
 
 ## Archivos
 
@@ -168,9 +190,8 @@ No hace todavía:
 | `app.js` | Navegación, fotos, autoguardado, publicación |
 | `acc.js` | Login PKCE y Data Management API |
 | `pdf.js` | Armado del PDF |
+| `logo.png` | Opcional: logo de la portada |
 | `db.js` | Almacenamiento local |
 | `sw.js` | Funcionamiento sin señal |
 | `fonts.css` | Barlow incrustada, para que no dependa de internet |
 | `vendor/pdf-lib.min.js` | Librería de PDF (MIT), local |
-
-
