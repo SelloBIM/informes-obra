@@ -37,7 +37,9 @@ body {
   color: var(--negro);
   background: var(--fondo);
   padding-top: calc(var(--alto-barra) + var(--arriba));
-  padding-bottom: calc(96px + var(--abajo));
+  /* --alto-accion lo mide app.js: la barra de abajo crece cuando muestra dos
+     botones, y con un valor fijo tapaba el final de la pantalla. */
+  padding-bottom: calc(var(--alto-accion, 96px) + 24px);
   overscroll-behavior-y: contain;
 }
 body.sin-accion { padding-bottom: calc(24px + var(--abajo)); }
@@ -176,6 +178,19 @@ body.sin-accion { padding-bottom: calc(24px + var(--abajo)); }
 .ruta__sep { color: var(--gris-cl); }
 .ruta__actual { color: var(--negro); font-weight: 600; }
 
+.buscador {
+  display: flex; align-items: center; gap: 8px;
+  margin: 0 0 12px; padding: 0 12px;
+  background: var(--blanco); border: 1px solid var(--linea); border-radius: 6px;
+}
+.buscador:focus-within { border-color: var(--negro); box-shadow: 0 0 0 3px rgba(35,31,32,.12); }
+.buscador__icono { font-size: 22px; color: var(--gris); line-height: 1; }
+.buscador__entrada {
+  flex: 1; min-width: 0; min-height: 50px; padding: 0;
+  font-family: inherit; font-size: 16px; color: var(--negro);
+  background: none; border: 0; outline: none;
+}
+
 .cargando { padding: 28px 8px; text-align: center; color: var(--gris); }
 .error {
   margin: 14px 0 0; padding: 12px 14px; border-radius: 6px;
@@ -246,15 +261,21 @@ body.sin-accion { padding-bottom: calc(24px + var(--abajo)); }
 .obs__accion:active { background: #E8E8E9; }
 .obs__accion:disabled { opacity: .3; }
 
-.obs__titulo, .obs__desc {
-  width: 100%; padding: 10px 11px; margin-bottom: 8px;
-  font-family: inherit; color: var(--negro);
+.obs__etiqueta {
+  display: block; margin: 2px 0 4px;
+  font-size: 13px; font-weight: 600; color: var(--gris);
+}
+.obs__requerido { color: var(--rojo-on); }
+.obs__campo {
+  width: 100%; padding: 10px 11px; margin-bottom: 10px;
+  font-family: inherit; font-size: 16px; color: var(--negro);
   background: var(--blanco); border: 1px solid var(--linea); border-radius: 5px;
   appearance: none;
 }
-.obs__titulo { min-height: 48px; font-size: 16px; font-weight: 600; }
-.obs__desc { min-height: 78px; font-size: 16px; line-height: 1.4; resize: vertical; }
-.obs__titulo:focus, .obs__desc:focus {
+.obs__titulo { min-height: 48px; font-weight: 600; }
+.obs__campo--linea { min-height: 48px; }
+.obs__campo--area { min-height: 66px; line-height: 1.4; resize: vertical; }
+.obs__campo:focus {
   outline: none; border-color: var(--negro); box-shadow: 0 0 0 3px rgba(35,31,32,.12);
 }
 

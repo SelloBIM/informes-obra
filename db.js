@@ -44,6 +44,8 @@ function tx(store, modo, fn) {
 // Los informes viejos guardaban una foto con un comentario cada una. El
 // formato nuevo agrupa varias fotos bajo una observación. Esta función
 // convierte los viejos al vuelo, para no perder nada de lo ya levantado.
+export const CAMPOS_OBS = ['titulo', 'actividad', 'condicionActual', 'condicionIdeal', 'notas'];
+
 function normalizar(informe) {
   if (!informe) return informe;
   if (!Array.isArray(informe.observaciones)) {
@@ -55,10 +57,14 @@ function normalizar(informe) {
     }));
     delete informe.fotos;
   }
+  // Segundo cambio de formato: la observación pasó de título + descripción a
+  // título, actividad, condición actual, condición ideal y observaciones.
+  // La descripción anterior queda como "observaciones" de esa observación.
   for (const o of informe.observaciones) {
     if (!Array.isArray(o.fotos)) o.fotos = [];
-    if (typeof o.titulo !== 'string') o.titulo = '';
-    if (typeof o.descripcion !== 'string') o.descripcion = '';
+    if (typeof o.descripcion === 'string' && o.descripcion && !o.notas) o.notas = o.descripcion;
+    delete o.descripcion;
+    for (const k of CAMPOS_OBS) if (typeof o[k] !== 'string') o[k] = '';
   }
   return informe;
 }

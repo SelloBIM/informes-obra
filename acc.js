@@ -66,12 +66,23 @@ export const auth = {
     return s ? s.usuario : null;
   },
 
+  // Las sesiones abiertas con versiones anteriores no guardaron el nombre.
+  // Se consulta una vez y queda guardado.
+  async asegurarUsuario() {
+    const u = this.usuario();
+    if (u && u.nombre) return u;
+    return cargarPerfil();
+  },
+
   async entrar() {
     const { verificador, reto } = await retoPkce();
     const estado = b64url(crypto.getRandomValues(new Uint8Array(12)));
+    // Autodesk exige un nonce cuando se pide "openid" (para recibir el nombre
+    // de la persona en el id_token). Se compara al volver.
+    const nonce = b64url(crypto.getRandomValues(new Uint8Array(12)));
     // En localStorage y no en sessionStorage: cuando la PWA está instalada,
     // el regreso desde Autodesk puede llegar en un contexto distinto.
-    localStorage.setItem(CLAVE_PKCE, JSON.stringify({ verificador, estado, ts: Date.now() }));
+    localStorage.setItem(CLAVE_PKCE, JSON.stringify({ verificador, estado, nonce, ts: Date.now() }));
 
     const p = new URLSearchParams({
       response_type: 'code',
@@ -81,6 +92,7 @@ export const auth = {
       state: estado,
       code_challenge: reto,
       code_challenge_method: 'S256',
+      nonce,
       prompt: 'login'
     });
     location.href = `${AUTH}/authorize?${p}`;
@@ -123,7 +135,14 @@ export const auth = {
     if (!r.ok) throw new Error(data.error_description || data.error || 'No se pudo completar el ingreso.');
 
     guardarTokens(data);
-    await cargarPerfil();
+    const delToken = usuarioDeIdToken(data.id_token, pkce.nonce);
+    if (delToken) {
+      const s = leerSesion();
+      s.usuario = delToken;
+      escribirSesion(s);
+    } else {
+      await cargarPerfil();
+    }
     return true;
   },
 
@@ -144,8 +163,10 @@ export const auth = {
       body: new URLSearchParams({
         grant_type: 'refresh_token',
         client_id: CONFIG.CLIENT_ID,
-        refresh_token: s.refresh_token,
-        scope: CONFIG.SCOPES
+        refresh_token: s.refresh_token
+        // Sin "scope": así se renuevan los mismos permisos con que se entró.
+        // Si se enviara la lista de config.js y esta tiene permisos nuevos,
+        // Autodesk rechazaría la renovación y cerraría la sesión.
       })
     });
     if (!r.ok) { escribirSesion(null); throw new Error('SIN_SESION'); }
@@ -158,12 +179,54 @@ function limpiarUrl() {
   history.replaceState(null, '', urlRetorno());
 }
 
+// Nombre y correo de quien inició sesión, para llenar "Elaborado por".
+// /userinfo es el endpoint vigente y no pide permisos adicionales. El
+// anterior (/userprofile/v1/users/@me) está obsoleto y exige un permiso que
+// la app no pide; se deja solo como respaldo.
 async function cargarPerfil() {
+  const s = leerSesion();
+  if (!s) return null;
+  let usuario = null;
+  const fallas = [];
   try {
-    const p = await api('GET', '/userprofile/v1/users/@me');
-    const s = leerSesion();
-    if (s) { s.usuario = { nombre: p.firstName ? `${p.firstName} ${p.lastName || ''}`.trim() : p.userName, correo: p.emailId }; escribirSesion(s); }
-  } catch { /* el perfil es opcional */ }
+    usuario = usuarioDeClaims(await api('GET', '/userinfo'));
+  } catch (e) { fallas.push('userinfo: ' + (e.status || e.message)); }
+  if (!usuario) {
+    try {
+      const p = await api('GET', '/userprofile/v1/users/@me');
+      usuario = { nombre: p.firstName ? `${p.firstName} ${p.lastName || ''}`.trim() : (p.userName || ''), correo: p.emailId || '' };
+    } catch (e) { fallas.push('users/@me: ' + (e.status || e.message)); }
+  }
+  // Se deja anotado por qué no se pudo, para mostrarlo en el menú ⋯.
+  perfilFalla = usuario ? '' : fallas.join(' · ');
+  if (usuario) {
+    const actual = leerSesion();
+    if (actual) { actual.usuario = usuario; escribirSesion(actual); }
+  }
+  return usuario;
+}
+
+let perfilFalla = '';
+export function motivoSinNombre() { return perfilFalla; }
+
+function usuarioDeClaims(c) {
+  if (!c) return null;
+  const nombre = (c.name || [c.given_name, c.family_name].filter(Boolean).join(' ') || c.preferred_username || '').trim();
+  return (nombre || c.email) ? { nombre, correo: c.email || '' } : null;
+}
+
+// El id_token es un JWT: tres partes en base64 separadas por puntos. La del
+// medio trae los datos de la persona. No hace falta verificar la firma: llegó
+// directo de Autodesk por HTTPS y solo se usa para prellenar un campo.
+function usuarioDeIdToken(idToken, nonceEsperado) {
+  if (!idToken) return null;
+  try {
+    const parte = idToken.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = decodeURIComponent(atob(parte).split('').map(c => '%' + c.charCodeAt(0).toString(16).padStart(2, '0')).join(''));
+    const c = JSON.parse(json);
+    if (nonceEsperado && c.nonce && c.nonce !== nonceEsperado) return null;
+    return usuarioDeClaims(c);
+  } catch { return null; }
 }
 
 // ------------------------------------------------------------------ API base

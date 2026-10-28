@@ -2,7 +2,8 @@
 // hasta que la persona pulsa "Publicar en ACC".
 //
 // Estructura: portada con logo y datos, luego una sección por observación
-// (número, título, descripción y sus fotos en cuadrícula de dos columnas).
+// (número, título, actividad, condición actual, condición ideal,
+// observaciones y sus fotos en cuadrícula de dos columnas).
 
 const { PDFDocument, StandardFonts, rgb } = PDFLib;
 
@@ -64,6 +65,14 @@ function cortar(texto, fuente, tam, anchoMax) {
   return lineas;
 }
 
+// Campos de texto de cada observación, en el orden en que se imprimen.
+const CAMPOS_TEXTO = [
+  ['actividad', 'Actividad'],
+  ['condicionActual', 'Condición actual'],
+  ['condicionIdeal', 'Condición ideal'],
+  ['notas', 'Observaciones']
+];
+
 function fecha(iso) {
   if (!iso) return '';
   const [a, m, d] = iso.split('-');
@@ -82,7 +91,8 @@ export async function generarPdf(informe, { empresa, logo }) {
   const normal = await doc.embedFont(StandardFonts.Helvetica);
   const fuerte = await doc.embedFont(StandardFonts.HelveticaBold);
 
-  const observaciones = (informe.observaciones || []).filter(o => (o.fotos || []).length || o.titulo || o.descripcion);
+  const observaciones = (informe.observaciones || []).filter(o =>
+    (o.fotos || []).length || CAMPOS_TEXTO.some(([k]) => (o[k] || '').trim()) || (o.titulo || '').trim());
   const totalFotos = observaciones.reduce((n, o) => n + (o.fotos || []).length, 0);
   const proyecto = informe.proyecto?.proyectoNombre || 'Proyecto';
 
@@ -159,6 +169,7 @@ export async function generarPdf(informe, { empresa, logo }) {
     ['Frente o área', informe.cabecera?.frente],
     ['Fecha de visita', fechaLarga(informe.cabecera?.fecha)],
     ['Elaborado por', informe.cabecera?.responsable],
+    // Clima ya no se pide; se conserva solo para informes viejos que lo tengan.
     ['Clima', informe.cabecera?.clima],
     ['Carpeta en ACC', informe.proyecto?.carpetaRuta],
     ['Contenido', `${observaciones.length} ${observaciones.length === 1 ? 'observación' : 'observaciones'} · ${totalFotos} foto${totalFotos === 1 ? '' : 's'}`]
@@ -179,6 +190,7 @@ export async function generarPdf(informe, { empresa, logo }) {
   }
   y -= fila * 44 + 6;
 
+  // Observaciones generales ya no se piden; solo salen en informes viejos.
   if (informe.cabecera?.resumen) {
     pc.drawLine({ start: { x: MARGEN, y }, end: { x: HOJA.ancho - MARGEN, y }, thickness: 0.75, color: LINEA });
     y -= 26;
@@ -201,13 +213,18 @@ export async function generarPdf(informe, { empresa, logo }) {
     for (let i = 0; i < observaciones.length; i++) {
       const obs = observaciones[i];
       const fotos = obs.fotos || [];
-      const titulo = obs.titulo || `Observación ${i + 1}`;
+      const titulo = (obs.titulo || '').trim() || `Observación ${i + 1}`;
       const lineasTitulo = cortar(titulo, fuerte, 13, ANCHO - SANGRIA);
-      const lineasDesc = obs.descripcion ? cortar(obs.descripcion, normal, 10.5, ANCHO - SANGRIA) : [];
+
+      // Bloques de texto con su etiqueta. Los campos vacíos no se imprimen.
+      const bloques = CAMPOS_TEXTO
+        .filter(([k]) => (obs[k] || '').trim())
+        .map(([k, etiqueta]) => ({ etiqueta, lineas: cortar(obs[k].trim(), normal, 10.5, ANCHO - SANGRIA) }));
+      const altoBloques = bloques.reduce((h, b) => h + 13 + b.lineas.length * 14 + 6, 0);
 
       // El encabezado de la observación no se separa de su primera fila de fotos.
-      const altoCabeza = lineasTitulo.length * 16 + (lineasDesc.length ? lineasDesc.length * 14 + 6 : 0) + 14;
-      const minimo = altoCabeza + (fotos.length ? FILA_H : 0);
+      const altoCabeza = lineasTitulo.length * 16 + (bloques.length ? altoBloques + 4 : 0) + 14;
+      const minimo = Math.min(altoCabeza + (fotos.length ? FILA_H : 0), HOJA.alto - 200);
       if (cursor - minimo < 78) saltar();
 
       // Número en cuadro rojo
@@ -223,13 +240,19 @@ export async function generarPdf(informe, { empresa, logo }) {
       });
       cursor -= lineasTitulo.length * 16 + 8;
 
-      if (lineasDesc.length) {
-        lineasDesc.forEach(l => {
-          if (cursor < 86) { saltar(); }
-          p.drawText(l, { x: MARGEN + SANGRIA, y: cursor - 8, size: 10.5, font: normal, color: TEXTO });
-          cursor -= 14;
-        });
-        cursor -= 6;
+      if (bloques.length) {
+        cursor -= 4;
+        for (const b of bloques) {
+          if (cursor < 100) saltar();
+          p.drawText(limpiar(b.etiqueta).toUpperCase(), { x: MARGEN + SANGRIA, y: cursor - 8, size: 7.5, font: fuerte, color: GRIS });
+          cursor -= 13;
+          b.lineas.forEach(l => {
+            if (cursor < 86) saltar();
+            p.drawText(l, { x: MARGEN + SANGRIA, y: cursor - 8, size: 10.5, font: normal, color: TEXTO });
+            cursor -= 14;
+          });
+          cursor -= 6;
+        }
       }
       cursor -= 8;
 
@@ -281,15 +304,20 @@ export async function generarPdf(informe, { empresa, logo }) {
   return new Blob([bytes], { type: 'application/pdf' });
 }
 
-export function nombreArchivo(informe) {
-  const limpio = s => limpiar(s || '')
-    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-    .replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40);
-  const partes = [
-    CONFIG.PREFIJO_ARCHIVO,
-    limpio(informe.proyecto?.proyectoNombre),
-    limpio(informe.cabecera?.frente),
-    informe.cabecera?.fecha || new Date().toISOString().slice(0, 10)
-  ].filter(Boolean);
-  return partes.join('_') + '.pdf';
+// Nombre en ACC: <Proyecto como aparece en ACC>_<AAAA-MM-DD>_<HH-MM>.pdf,
+// con la fecha y hora de publicación (hora local, formato 24 h).
+// Ej.: AIV2210_Providencia_2026-10-28_14-35.pdf
+// La hora va con guion porque los dos puntos no se permiten en nombres de
+// archivo de ACC ni de Windows. Como cada publicación lleva su hora, cada vez
+// que se publica queda un archivo nuevo, no una versión del anterior.
+export function nombreArchivo(informe, cuando = new Date()) {
+  const proyecto = String(informe.proyecto?.proyectoNombre || 'Proyecto')
+    .replace(/[\\/:*?"<>|\u0000-\u001F]+/g, '-')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/^[.\s]+|[.\s]+$/g, '') || 'Proyecto';
+  const dos = n => String(n).padStart(2, '0');
+  const dia = `${cuando.getFullYear()}-${dos(cuando.getMonth() + 1)}-${dos(cuando.getDate())}`;
+  const hora = `${dos(cuando.getHours())}-${dos(cuando.getMinutes())}`;
+  return `${proyecto}_${dia}_${hora}.pdf`;
 }

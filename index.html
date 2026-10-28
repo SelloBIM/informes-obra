@@ -60,7 +60,14 @@
   <section class="pantalla" id="p-destino" hidden>
     <p class="paso" id="destino-ayuda">Elige dónde se va a publicar el PDF.</p>
     <nav class="ruta" id="destino-ruta" hidden></nav>
+    <label class="buscador" id="destino-buscador" hidden>
+      <span class="buscador__icono" aria-hidden="true">⌕</span>
+      <input class="buscador__entrada" id="destino-buscar" type="search" placeholder="Buscar proyecto por nombre o código" autocomplete="off" enterkeyhint="search" aria-label="Buscar proyecto">
+    </label>
     <div class="lista" id="destino-lista"></div>
+    <div class="vacio vacio--compacto" id="destino-sin-resultados" hidden>
+      <p class="vacio__texto">Ningún proyecto coincide con la búsqueda.</p>
+    </div>
     <div class="cargando" id="destino-cargando" hidden>Consultando ACC…</div>
     <div class="error" id="destino-error" hidden></div>
   </section>
@@ -72,32 +79,16 @@
 
     <div class="campos">
       <label class="campo">
-        <span class="campo__etiqueta">Frente o área</span>
-        <input class="campo__entrada" id="f-frente" type="text" placeholder="Torre 3 — piso 8" autocomplete="off">
+        <span class="campo__etiqueta">Frente o área <span class="obs__requerido" aria-hidden="true">*</span></span>
+        <input class="campo__entrada" id="f-frente" type="text" placeholder="Torre 3 — piso 8" autocomplete="off" required>
       </label>
-      <div class="campos__fila">
-        <label class="campo">
-          <span class="campo__etiqueta">Fecha de visita</span>
-          <input class="campo__entrada" id="f-fecha" type="date">
-        </label>
-        <label class="campo">
-          <span class="campo__etiqueta">Clima</span>
-          <select class="campo__entrada" id="f-clima">
-            <option value="">—</option>
-            <option>Despejado</option>
-            <option>Nublado</option>
-            <option>Lluvia</option>
-            <option>Lluvia fuerte</option>
-          </select>
-        </label>
-      </div>
+      <label class="campo">
+        <span class="campo__etiqueta">Fecha de visita</span>
+        <input class="campo__entrada" id="f-fecha" type="date">
+      </label>
       <label class="campo">
         <span class="campo__etiqueta">Elaborado por</span>
-        <input class="campo__entrada" id="f-responsable" type="text" placeholder="Nombre y cargo" autocomplete="name">
-      </label>
-      <label class="campo">
-        <span class="campo__etiqueta">Observaciones generales</span>
-        <textarea class="campo__entrada campo__entrada--area" id="f-resumen" rows="3" placeholder="Lo que debe quedar escrito aunque no haya foto."></textarea>
+        <input class="campo__entrada" id="f-responsable" type="text" placeholder="Nombre de quien elabora el informe" autocomplete="name">
       </label>
     </div>
 
@@ -105,7 +96,7 @@
       <h3 class="seccion-obs__titulo">Observaciones <span class="conteo" id="conteo-obs">0</span></h3>
       <div class="observaciones" id="observaciones"></div>
       <div class="vacio vacio--compacto" id="obs-vacio">
-        <p class="vacio__texto">Cada observación es un hallazgo: un título, qué pasa y las fotos que lo sustentan.</p>
+        <p class="vacio__texto">Cada observación es un hallazgo: un título, la actividad, la condición actual y la ideal, y las fotos que lo sustentan.</p>
       </div>
       <button class="boton boton--negro boton--ancho" id="btn-nueva-obs">Agregar observación</button>
       <input type="file" id="in-camara" accept="image/*" capture="environment" multiple hidden>

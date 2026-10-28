@@ -1,5 +1,5 @@
-import { db } from './db.js';
-import { auth, acc, urlRetorno } from './acc.js';
+import { db, CAMPOS_OBS } from './db.js';
+import { auth, acc, urlRetorno, motivoSinNombre } from './acc.js';
 import { generarPdf, nombreArchivo } from './pdf.js';
 
 const $ = s => document.querySelector(s);
@@ -33,7 +33,10 @@ async function cargarLogo() {
 
 // ========================================================== arranque
 
-(async function iniciar() {
+// Se invoca al final del archivo, cuando ya están definidas todas las
+// funciones y constantes. Si se llamara aquí mismo, el camino de "falta el
+// Client ID" usaría PANTALLAS antes de existir y la app no mostraría el aviso.
+async function iniciar() {
   registrarServiceWorker();
   vigilarRed();
 
@@ -59,11 +62,12 @@ async function cargarLogo() {
   if (auth.haySesion()) {
     db.protegerAlmacenamiento();
     cargarLogo();
+    auth.asegurarUsuario().catch(() => {});
     irALista();
   } else {
     mostrarPantalla('entrar');
   }
-})();
+}
 
 $('#btn-entrar').addEventListener('click', () => {
   $('#btn-entrar').disabled = true;
@@ -92,6 +96,14 @@ function mostrarPantalla(nombre) {
   $('#btn-atras').hidden = (nombre === 'lista' || nombre === 'entrar');
   $('#btn-cuenta').hidden = (nombre === 'entrar');
   window.scrollTo(0, 0);
+}
+
+// Reserva abajo exactamente el alto de la barra de acción (uno o dos botones,
+// más la franja segura del iPhone), para que no tape lo último de la pantalla.
+if ('ResizeObserver' in window) {
+  new ResizeObserver(() => {
+    document.documentElement.style.setProperty('--alto-accion', $('#accion').offsetHeight + 'px');
+  }).observe($('#accion'));
 }
 
 function ponerTitulo(t) { $('#barra-titulo').textContent = t; }
@@ -136,7 +148,8 @@ async function pintarLista() {
     fila.type = 'button';
     const txt = el('span', 'fila__texto');
     txt.appendChild(el('span', 'fila__titulo', inf.proyecto?.proyectoNombre || 'Sin proyecto'));
-    const obs = inf.observaciones || [];
+    // Se cuentan igual que en el PDF: una observación vacía no cuenta.
+    const obs = (inf.observaciones || []).filter(o => o.fotos.length || CAMPOS_OBS.some(k => (o[k] || '').trim()));
     const nFotos = obs.reduce((n, o) => n + (o.fotos || []).length, 0);
     const partes = [
       inf.cabecera?.frente,
@@ -172,8 +185,12 @@ async function pintarDestino() {
   const lista = $('#destino-lista');
   const ruta = $('#destino-ruta');
   lista.innerHTML = '';
+  lista.hidden = false;
   $('#destino-error').hidden = true;
   $('#destino-cargando').hidden = false;
+  $('#destino-sin-resultados').hidden = true;
+  $('#destino-buscador').hidden = true;
+  $('#destino-buscar').value = '';
   accion(null);
 
   // Migas de pan
@@ -211,7 +228,12 @@ async function pintarDestino() {
         $('#destino-cargando').hidden = true;
         return errorDestino('Esta cuenta no tiene proyectos visibles para tu usuario', 'Pide que te agreguen al proyecto en ACC.');
       }
-      proyectos.forEach(p => lista.appendChild(filaNav('📁', p.nombre, null, () => { n.proyecto = p; n.pila = []; pintarDestino(); })));
+      proyectos.forEach(p => {
+        const f = filaNav('📁', p.nombre, null, () => { n.proyecto = p; n.pila = []; pintarDestino(); });
+        f.dataset.buscar = paraBuscar(p.nombre);
+        lista.appendChild(f);
+      });
+      $('#destino-buscador').hidden = false;
 
     } else {
       $('#destino-ayuda').textContent = n.pila.length
@@ -242,6 +264,25 @@ async function pintarDestino() {
     $('#destino-cargando').hidden = true;
   }
 }
+
+// Filtra la lista de proyectos mientras se escribe. Sin tildes ni mayúsculas:
+// "raquira" encuentra "AIV2202_Ráquira".
+function paraBuscar(t) {
+  return String(t || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+}
+
+$('#destino-buscar').addEventListener('input', () => {
+  const q = paraBuscar($('#destino-buscar').value).trim();
+  const palabras = q.split(/\s+/).filter(Boolean);
+  let visibles = 0;
+  for (const f of $('#destino-lista').children) {
+    const ok = !palabras.length || palabras.every(w => (f.dataset.buscar || '').includes(w));
+    f.hidden = !ok;
+    if (ok) visibles++;
+  }
+  $('#destino-lista').hidden = visibles === 0;
+  $('#destino-sin-resultados').hidden = visibles > 0;
+});
 
 function agregarMiga(cont, texto, fn, actual) {
   if (cont.children.length) cont.appendChild(el('span', 'ruta__sep', '›'));
@@ -286,21 +327,32 @@ async function confirmarDestino(carpeta) {
     return abrirInforme(inf.id);
   }
 
-  const previo = await db.ajuste('ultimoAutor');
   const inf = {
     id: db.nuevoId(),
     creado: Date.now(),
     estado: 'borrador',
     proyecto: destino,
-    cabecera: {
-      frente: '', fecha: hoy(), clima: '',
-      responsable: previo || (auth.usuario() ? auth.usuario().nombre : ''),
-      resumen: ''
-    },
-    observaciones: [{ id: 'o' + Date.now().toString(36), titulo: '', descripcion: '', fotos: [] }]
+    cabecera: { frente: '', fecha: hoy(), responsable: await nombreAutor() },
+    observaciones: [obsVacia()]
   };
   await db.guardar(inf);
   abrirInforme(inf.id);
+}
+
+// "Elaborado por" se llena con el nombre de quien inició sesión en Autodesk.
+// Si no se pudo leer (sin señal, por ejemplo), se usa el último nombre escrito
+// en este teléfono. El campo sigue siendo editable.
+async function nombreAutor() {
+  let u = auth.usuario();
+  if (!u || !u.nombre) { try { u = await auth.asegurarUsuario(); } catch { u = null; } }
+  if (u && u.nombre) return u.nombre;
+  return (await db.ajuste('ultimoAutor')) || '';
+}
+
+function obsVacia() {
+  const o = { id: 'o' + Date.now().toString(36) + Math.random().toString(36).slice(2, 5), fotos: [] };
+  for (const k of CAMPOS_OBS) o[k] = '';
+  return o;
 }
 
 // ========================================================== editor
@@ -312,11 +364,14 @@ async function abrirInforme(id) {
   mostrarPantalla('informe');
   ponerTitulo(inf.estado === 'publicado' ? 'Informe publicado' : 'Nuevo informe');
 
+  if (inf.estado !== 'publicado' && !inf.cabecera.responsable) {
+    inf.cabecera.responsable = await nombreAutor();
+    if (inf.cabecera.responsable) await db.guardar(inf);
+  }
+
   $('#f-frente').value = inf.cabecera.frente || '';
   $('#f-fecha').value = inf.cabecera.fecha || hoy();
-  $('#f-clima').value = inf.cabecera.clima || '';
   $('#f-responsable').value = inf.cabecera.responsable || '';
-  $('#f-resumen').value = inf.cabecera.resumen || '';
 
   pintarDestinoInforme();
   pintarObservaciones();
@@ -347,16 +402,15 @@ function guardarPronto() {
     if (!inf) return;
     inf.cabecera.frente = $('#f-frente').value.trim();
     inf.cabecera.fecha = $('#f-fecha').value;
-    inf.cabecera.clima = $('#f-clima').value;
     inf.cabecera.responsable = $('#f-responsable').value.trim();
-    inf.cabecera.resumen = $('#f-resumen').value.trim();
     await db.guardar(inf);
     if (inf.cabecera.responsable) db.ajuste('ultimoAutor', inf.cabecera.responsable);
     actualizarAccionInforme();
   }, 400);
 }
-['#f-frente', '#f-fecha', '#f-clima', '#f-responsable', '#f-resumen']
+['#f-frente', '#f-fecha', '#f-responsable']
   .forEach(s => $(s).addEventListener('input', guardarPronto));
+$('#f-frente').addEventListener('input', () => actualizarAccionInforme());
 
 // --- fotos
 
@@ -429,10 +483,7 @@ function viaImagen(archivo) {
 }
 
 async function agregarObservacion() {
-  estado.informe.observaciones.push({
-    id: 'o' + Date.now().toString(36),
-    titulo: '', descripcion: '', fotos: []
-  });
+  estado.informe.observaciones.push(obsVacia());
   await db.guardar(estado.informe);
   pintarObservaciones();
   actualizarAccionInforme();
@@ -463,25 +514,34 @@ function pintarObservaciones() {
     barra.appendChild(botonIcono('✕', 'Eliminar observación', false, () => quitarObs(i)));
     caja.appendChild(barra);
 
-    // --- título
-    const titulo = el('input', 'obs__titulo');
-    titulo.type = 'text';
-    titulo.placeholder = 'Título: qué se encontró';
-    titulo.value = o.titulo || '';
-    titulo.addEventListener('input', () => {
-      o.titulo = titulo.value;
-      guardarObsPronto();
-      actualizarAccionInforme();
-    });
-    caja.appendChild(titulo);
+    // --- campos de texto. Solo el título es obligatorio.
+    for (const c of CAMPOS_EDITOR) {
+      const id = `obs-${o.id}-${c.clave}`;
+      const etiqueta = el('label', 'obs__etiqueta', c.etiqueta);
+      etiqueta.htmlFor = id;
+      if (c.obligatorio) {
+        const req = el('span', 'obs__requerido', ' *');
+        req.setAttribute('aria-hidden', 'true');
+        etiqueta.appendChild(req);
+      }
+      caja.appendChild(etiqueta);
 
-    // --- descripción
-    const desc = el('textarea', 'obs__desc');
-    desc.rows = 3;
-    desc.placeholder = 'Descripción: qué pasa y qué hay que hacer';
-    desc.value = o.descripcion || '';
-    desc.addEventListener('input', () => { o.descripcion = desc.value; guardarObsPronto(); });
-    caja.appendChild(desc);
+      const campo = c.area ? el('textarea', 'obs__campo obs__campo--area') : el('input', 'obs__campo obs__campo--linea');
+      if (c.area) campo.rows = 2; else campo.type = 'text';
+      if (c.clase) campo.classList.add(c.clase);
+      if (c.obligatorio) campo.required = true;
+      campo.id = id;
+      campo.placeholder = c.ayuda;
+      campo.value = o[c.clave] || '';
+      campo.addEventListener('input', () => {
+        o[c.clave] = campo.value;
+        guardarObsPronto();
+        // Cualquier campo cuenta: escribir en una observación sin título
+        // debe bloquear la publicación hasta que se le ponga uno.
+        actualizarAccionInforme();
+      });
+      caja.appendChild(campo);
+    }
 
     // --- fotos
     if (o.fotos.length) {
@@ -520,6 +580,15 @@ function pintarObservaciones() {
   });
 }
 
+// Campos de cada observación, en el orden en que se muestran.
+const CAMPOS_EDITOR = [
+  { clave: 'titulo',          etiqueta: 'Título',           ayuda: 'Qué se encontró', obligatorio: true, clase: 'obs__titulo' },
+  { clave: 'actividad',       etiqueta: 'Actividad',        ayuda: 'Ej.: mampostería, instalaciones eléctricas' },
+  { clave: 'condicionActual', etiqueta: 'Condición actual', ayuda: 'Cómo está hoy', area: true },
+  { clave: 'condicionIdeal',  etiqueta: 'Condición ideal',  ayuda: 'Cómo debería estar', area: true },
+  { clave: 'notas',           etiqueta: 'Observaciones',    ayuda: 'Comentarios adicionales', area: true }
+];
+
 // Guardado diferido de los campos de las observaciones. No vuelve a pintar,
 // para no sacarle el teclado al residente mientras escribe.
 let tObs = null;
@@ -545,7 +614,7 @@ async function moverObs(i, paso) {
 
 function quitarObs(i) {
   const o = estado.informe.observaciones[i];
-  const tiene = o.fotos.length || o.titulo || o.descripcion;
+  const tiene = o.fotos.length || CAMPOS_OBS.some(k => (o[k] || '').trim());
   const borrar = async () => {
     estado.informe.observaciones.splice(i, 1);
     await db.guardar(estado.informe);
@@ -581,20 +650,22 @@ function actualizarAccionInforme() {
   if (estado.pantalla !== 'informe') return;
   const inf = estado.informe;
   const obs = inf.observaciones || [];
-  const utiles = obs.filter(o => (o.titulo || '').trim());
+  // Obligatorios: el frente o área del informe y el título de cada
+  // observación. Una observación completamente vacía no cuenta (y no sale en
+  // el PDF).
+  const conContenido = obs.filter(o => o.fotos.length || CAMPOS_OBS.some(k => (o[k] || '').trim()));
+  const sinTitulo = obs.findIndex(o => !(o.titulo || '').trim() && conContenido.includes(o));
   const faltan = [];
-  if (!$('#f-fecha').value) faltan.push('la fecha');
-  if (!$('#f-responsable').value.trim()) faltan.push('quién lo elabora');
-  if (!obs.length) faltan.push('al menos una observación');
-  else if (!utiles.length) faltan.push('el título de la observación');
-  else if (!utiles.some(o => (o.fotos || []).length)) faltan.push('al menos una foto');
+  if (!$('#f-frente').value.trim()) faltan.push('el frente o área');
+  if (!conContenido.length) faltan.push(obs.length ? 'el título de la observación' : 'al menos una observación');
+  else if (sinTitulo >= 0) faltan.push(obs.length > 1 ? `el título de la observación ${sinTitulo + 1}` : 'el título de la observación');
 
   const b = $('#btn-accion');
   if (faltan.length) {
     accion(`Falta ${faltan[0]}`, null);
     b.disabled = true;
   } else {
-    accion(inf.estado === 'publicado' ? 'Publicar una versión nueva' : 'Publicar en ACC', publicar,
+    accion(inf.estado === 'publicado' ? 'Publicar de nuevo' : 'Publicar en ACC', publicar,
       { secundario: { texto: 'Ver el PDF', fn: verPdf } });
   }
 }
@@ -605,7 +676,7 @@ async function verPdf() {
   try {
     await sincronizarCampos();
     const blob = await generarPdf(estado.informe, { empresa: CONFIG.EMPRESA, logo: estado.logo });
-    const nombre = nombreArchivo(estado.informe);
+    const nombre = nombreArchivo(estado.informe, new Date());
     const archivo = new File([blob], nombre, { type: 'application/pdf' });
 
     if (navigator.canShare && navigator.canShare({ files: [archivo] })) {
@@ -628,9 +699,7 @@ async function sincronizarCampos() {
   const inf = estado.informe;
   inf.cabecera.frente = $('#f-frente').value.trim();
   inf.cabecera.fecha = $('#f-fecha').value;
-  inf.cabecera.clima = $('#f-clima').value;
   inf.cabecera.responsable = $('#f-responsable').value.trim();
-  inf.cabecera.resumen = $('#f-resumen').value.trim();
   await db.guardar(inf);
 }
 
@@ -639,7 +708,7 @@ async function sincronizarCampos() {
 async function publicar() {
   await sincronizarCampos();
   const inf = estado.informe;
-  const nombre = nombreArchivo(inf);
+  const nombre = nombreArchivo(inf, new Date());
 
   abrirHoja('Publicando en ACC', `
     <p>Carpeta: <strong>${esc(inf.proyecto.carpetaRuta || 'Project Files')}</strong><br>
@@ -709,8 +778,12 @@ $('#btn-cuenta').addEventListener('click', async () => {
   acciones.push({ texto: 'Cerrar sesión', clase: 'boton--borde', fn: () => { cerrarHoja(); cerrarSesion(); } });
   acciones.push({ texto: 'Volver', clase: 'boton--texto', fn: cerrarHoja });
 
+  const sinNombre = !(u && u.nombre);
   abrirHoja('Cuenta', `
     <p>${u ? `<strong>${esc(u.nombre || '')}</strong><br>${esc(u.correo || '')}` : 'Sesión activa con Autodesk.'}</p>
+    ${sinNombre ? `<p>No se pudo leer tu nombre de Autodesk, así que "Elaborado por" no se llena solo.
+       Cierra sesión y vuelve a entrar para darle ese permiso a la app.
+       ${motivoSinNombre() ? `<br><small>Detalle: ${esc(motivoSinNombre())}</small>` : ''}</p>` : ''}
     ${esp && esp.total ? `<p>Espacio usado en el teléfono: ${mb(esp.usado)} de ${mb(esp.total)}.</p>` : ''}
     ${iosSinInstalar ? `<p><strong>Para instalarla en iPhone:</strong> abre esta página en Safari, toca el botón de compartir y elige "Agregar a pantalla de inicio".</p>` : ''}
   `, acciones);
@@ -773,7 +846,10 @@ function registrarServiceWorker() {
   addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 
-function hoy() { return new Date().toISOString().slice(0, 10); }
+function hoy() {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
 function esperar(ms) { return new Promise(r => setTimeout(r, ms)); }
 function mb(b) { return (b / 1048576).toFixed(b > 104857600 ? 0 : 1) + ' MB'; }
 function recortar(s, n) { return (s || '').length > n ? s.slice(0, n - 1) + '…' : (s || ''); }
@@ -786,3 +862,5 @@ function fechaCorta(iso) {
   const [a, m, d] = iso.split('-');
   return `${d}/${m}/${a.slice(2)}`;
 }
+
+iniciar();

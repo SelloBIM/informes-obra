@@ -15,7 +15,9 @@ window.CONFIG = {
   //   data:write   subir una versión nueva de un archivo existente
   //   data:create  crear el archivo en la carpeta
   //   offline_access  renovar la sesión sin volver a pedir la contraseña
-  SCOPES: "data:read data:write data:create offline_access",
+  //   openid, user-profile:read  leer nombre y correo de quien entra, para
+  //                llenar solo el campo "Elaborado por"
+  SCOPES: "data:read data:write data:create offline_access openid user-profile:read",
 
   // Nombre de la empresa como debe salir en el pie del PDF.
   EMPRESA: "Jaramillo Mora Constructora",
@@ -26,9 +28,9 @@ window.CONFIG = {
   // nombre de la empresa en texto.
   LOGO: null,
 
-  // Prefijo del nombre del archivo que se sube a ACC.
-  // El nombre final queda: INFORME_<Proyecto>_<Frente>_<AAAA-MM-DD>.pdf
-  PREFIJO_ARCHIVO: "INFORME",
+  // El nombre del archivo que se sube a ACC no se configura aquí. Queda:
+  //   <Proyecto como aparece en ACC>_<AAAA-MM-DD>_<HH-MM>.pdf
+  // con la fecha y hora de publicación. Se arma en pdf.js (nombreArchivo).
 
   // Compresión de fotos antes de guardarlas. Bájalo si los PDF pesan mucho.
   FOTO_LADO_MAX: 1600,   // píxeles del lado más largo
