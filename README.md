@@ -50,6 +50,12 @@ Abre `config.js` y reemplaza el valor de `CLIENT_ID` por el que copiaste.
 Ahí mismo puedes ajustar el nombre de la empresa que sale en el PDF y la
 compresión de las fotos.
 
+**Probar en tu computador.** Doble clic en `iniciar-app.bat` levanta la app en
+`http://localhost:8099/` usando PowerShell, que ya viene con Windows. Para que
+el login funcione ahí, `http://localhost:8099/` tiene que estar agregada como
+segunda Callback URL de la app en aps.autodesk.com. Usa una ventana InPrivate
+para ver siempre la última versión de los archivos.
+
 **Logo en el PDF.** Sube un `logo.png` a la raíz del repositorio (PNG con fondo
 transparente, entre 400 y 800 px de ancho) y en `config.js` cambia `LOGO: null`
 por `LOGO: "logo.png"`. Aparece en la portada y en el encabezado de cada
@@ -94,8 +100,10 @@ Queda con icono propio y abre a pantalla completa, sin barra de navegador.
 - Cada persona entra con **su** cuenta de Autodesk. La app hereda exactamente
   los permisos que esa persona ya tiene en ACC: no puede escribir en un proyecto
   donde no la hayan invitado.
-- Permisos pedidos: `data:read`, `data:write`, `data:create` y `offline_access`.
-  Ninguno de administración de cuenta.
+- Permisos pedidos: `data:read`, `data:write`, `data:create`, `offline_access`,
+  y `openid` con `user-profile:read` para leer el nombre y el correo de quien
+  entra (con eso se llena solo "Elaborado por"). Ninguno de administración de
+  cuenta.
 - La cámara se abre con el selector de archivos del sistema operativo. La app
   nunca pide permiso permanente de cámara, ni ubicación, ni contactos.
 
@@ -156,26 +164,33 @@ app se actualiza sola.
 
 Hace:
 
-- Informe por proyecto, con frente, fecha, responsable, clima y observaciones
-  generales.
-- **Observaciones**: cada hallazgo lleva título, descripción y todas las fotos
-  que lo sustenten. Se reordenan y se eliminan por separado.
+- Informe por proyecto, con frente, fecha de visita y quién lo elabora. Este
+  último se llena solo con el nombre de la cuenta de Autodesk que inició sesión.
+- **Observaciones**: cada hallazgo lleva título, actividad, condición actual,
+  condición ideal, observaciones y las fotos que lo sustenten. Son obligatorios
+  el frente o área del informe y el título de cada observación; lo demás,
+  incluidas las fotos, es opcional. Se reordenan y se
+  eliminan por separado.
+- Buscador de proyectos al elegir dónde publicar (sin importar tildes ni
+  mayúsculas).
 - Fotos desde la cámara o la galería, comprimidas en el teléfono. Se numeran
   por observación (1.1, 1.2, 2.1) para poder citarlas en una reunión.
 - Autoguardado permanente y funcionamiento sin señal.
 - PDF con portada, logo opcional, observaciones numeradas y las fotos en
   cuadrícula de dos columnas.
-- Publicación en la carpeta que elijas del proyecto en ACC. Si el archivo ya
-  existe, sube una **versión nueva** en vez de duplicarlo.
+- Publicación en la carpeta que elijas del proyecto en ACC, con el nombre
+  `<Proyecto como aparece en ACC>_<AAAA-MM-DD>_<HH-MM>.pdf` (fecha y hora de
+  publicación). Como cada publicación lleva su hora, cada vez queda un archivo
+  nuevo.
 - Ver o compartir el PDF antes de publicarlo.
-- Los informes levantados con la versión anterior (una foto, un comentario) se
-  convierten solos al abrirlos: cada foto pasa a ser una observación.
+- Los informes levantados con versiones anteriores se convierten solos al
+  abrirlos: la descripción de cada observación pasa al campo "Observaciones".
 
 No hace todavía:
 
 - Crear Issues ni RFIs en ACC Build (eso es otra API).
 - Firmas, marcas sobre la foto ni plantillas por tipo de informe.
-- Prioridad o responsable por observación: hoy solo título, descripción y fotos.
+- Prioridad o responsable por observación.
 - Trabajo colaborativo: cada informe vive en el teléfono de quien lo levanta.
 
 ---
